@@ -1,0 +1,20 @@
+{
+  "name": "opengluck-webhook-apns",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "TZ=Europe/Paris node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "eslint": "eslint **.js **.mjs"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "opengluck-apn": "file:../opengluck-apn",
+    "opengluck-node-client": "file:../opengluck-node-client"
+  },
+  "devDependencies": {
+    "eslint": "^8.38.0"
+  }
+}
