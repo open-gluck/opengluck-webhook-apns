@@ -18,6 +18,7 @@ const port = Number(process.env.PORT || 6501);
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", async () => {
+      const isInstant = req.url === "/instant";
       const bodyJSON = Buffer.concat(chunks).toString();
       console.log("Received", bodyJSON);
       const body = JSON.parse(bodyJSON);
@@ -37,13 +38,13 @@ const port = Number(process.env.PORT || 6501);
       const currentCgmHasRealTime = !!cgmProperties["has-real-time"];
 
       console.log(
-        `cgmProperties=${cgmProperties}, currentDeviceHasCgmRealtimeData=${currentCgmHasRealTime}`
+        `isInstant=${isInstant}, cgmProperties=${cgmProperties}, currentDeviceHasCgmRealtimeData=${currentCgmHasRealTime}`,
       );
 
       // sending notification
       let notification = {};
-      notification.contentAvailable = true;
-      notification.priority = 10;
+      notification.contentAvailable = !isInstant;
+      notification.priority = isInstant ? 5 : 10;
       notification.sound = "default";
       notification.badge = newGlucose;
       notification.payload = {

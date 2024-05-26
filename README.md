@@ -11,9 +11,21 @@ Checkout both this repository and `opengluck-apn` in the same directory, and
 configure APNs in the latter module.
 
 Next, [install the `glucose:changed` webhook in
-opengluck](https://opengluck.christopher.dev.api.makesuccess.io/webhooks/glucose:changed):
+opengluck](https://<your-server>/webhooks/glucose:changed):
 
 - http://host.docker.internal:6501
+- enable sending last data
+
+### Support for Instant Glucose
+
+If you are using a CGM with support for instant glucose, you might also want to
+enable the `/instant` route. This will update the badge more often, using a
+lesser priority to preserve battery life for these updates.
+
+To do so, [install the `instant-glucose:changed` webhook in
+opengluck](https://<your-server>/webhooks/instant-glucose:changed):
+
+- http://host.docker.internal:6501/instant
 - enable sending last data
 
 ### Configuration
