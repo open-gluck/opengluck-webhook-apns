@@ -52,7 +52,9 @@ const port = Number(process.env.PORT || 6501);
         timestamp: newTimestamp,
         hasRealTime: currentCgmHasRealTime,
       };
-      await additionalConfig.default({ data, last, notification });
+      if (!isInstant) {
+        await additionalConfig.default({ data, last, notification });
+      }
       console.log("Will send notification:", notification);
       await sendNotification(notification);
     });
