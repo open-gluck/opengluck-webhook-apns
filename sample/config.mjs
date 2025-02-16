@@ -186,6 +186,7 @@ export default async function showAlert({ data, last, notification }) {
         title: "\u{1F6A8} Low",
         body: `${newMgDl} mg/dL`,
       };
+      notification.category = "LOW";
     } else {
       const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
         new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime()
@@ -194,6 +195,7 @@ export default async function showAlert({ data, last, notification }) {
         title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
         body: `${newMgDl} mg/dL`,
       };
+      notification.category = "LOW";
     }
     return;
   } else {
