@@ -18,6 +18,7 @@ const port = Number(process.env.PORT || 6501);
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", async () => {
+      console.log(`Received payload at ${new Date()}`);
       const isInstant = req.url === "/instant";
       const bodyJSON = Buffer.concat(chunks).toString();
       console.log("Received", bodyJSON);
@@ -34,11 +35,14 @@ const port = Number(process.env.PORT || 6501);
 
       const newGlucose = data.new.mgDl;
       const newTimestamp = data.new.timestamp;
+      const newDate = new Date(newTimestamp);
       const cgmProperties = data["cgm-properties"] || {};
+      const glucoseRecords = last["glucose-records"] || [];
+      const isNewScanOrHistoric = glucoseRecords.some(record => new Date(record.timestamp).getTime() === newDate.getTime());
       const currentCgmHasRealTime = !!cgmProperties["has-real-time"];
 
       console.log(
-        `isInstant=${isInstant}, cgmProperties=${cgmProperties}, currentDeviceHasCgmRealtimeData=${currentCgmHasRealTime}`,
+        `isInstant=${isInstant}, cgmProperties=${cgmProperties}, currentDeviceHasCgmRealtimeData=${currentCgmHasRealTime}, newTimestamp=${newTimestamp}, isNewScanOrHistoric=${isNewScanOrHistoric}`,
       );
 
       // sending notification
@@ -51,6 +55,7 @@ const port = Number(process.env.PORT || 6501);
         mgDl: newGlucose,
         timestamp: newTimestamp,
         hasRealTime: currentCgmHasRealTime,
+        isNewScanOrHistoric,
       };
       if (!isInstant) {
         await additionalConfig.default({ data, last, notification });
