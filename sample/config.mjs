@@ -1,5 +1,48 @@
 import { readFileSync, writeFileSync } from "fs";
 import { sendNotification } from "opengluck-apn";
+import { request } from "https";
+
+async function getTimezoneShift() {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      `${process.env.OPENGLUCK_URL}/opengluck/userdata/log-openglück.phone/lrange?end=1`,
+      (res) => {
+        let chunks = [];
+        res.on("data", (chunk) => {
+          chunks.push(chunk);
+        });
+        res.on("end", () => {
+          const data = Buffer.concat(chunks).toString();
+          const timestamp = JSON.parse(data || "null")?.[0].timestamp;
+          if (!timestamp) {
+            return 0;
+          }
+          const userTimezoneOffset =
+            -parseInt(timestamp.match(/([+-]\d{2}):(\d{2})/)?.[1] || 0) * 60 -
+            parseInt(timestamp.match(/([+-]\d{2}):(\d{2})/)?.[2] || 0) *
+              Math.sign(
+                parseInt(timestamp.match(/([+-]\d{2}):(\d{2})/)?.[1] || 0),
+              );
+          const thisTimezoneOffset = new Date().getTimezoneOffset();
+          const timezoneShift =
+            -(userTimezoneOffset - thisTimezoneOffset) * 60e3;
+          console.log(
+            `Applying a timezone shift of ${timezoneShift / 60e3}m: userTimezoneOffset=${userTimezoneOffset} thisTimezoneOffset=${thisTimezoneOffset}`,
+          );
+          resolve(timezoneShift);
+        });
+        res.on("error", reject);
+      },
+    );
+    req.setHeader("Authorization", `Bearer ${process.env.OPENGLUCK_TOKEN}`);
+    req.end();
+  });
+}
+
+let timezoneShift = getTimezoneShift();
+setInterval(function () {
+  timezoneShift = getTimezoneShift();
+}, 300e3);
 
 function convertMillisecondsToHoursAndMinutesString(milliseconds) {
   const hours = Math.floor(milliseconds / 3600000);
@@ -77,7 +120,8 @@ function isHigh(mgDl) {
 }
 
 async function getIsNight() {
-  const currentHour = new Date().getHours();
+  const shift = await timezoneShift;
+  const currentHour = new Date(Date.now() + shift).getHours();
   const isNight = currentHour >= 0 && currentHour < 9;
   return isNight;
 }
