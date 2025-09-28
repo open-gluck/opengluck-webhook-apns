@@ -36,7 +36,7 @@ function readTmpData(name) {
 function writeTmpData(name, data) {
   writeFileSync(
     `/tmp/openlibre-webhook-apns-${name}.data`,
-    JSON.stringify(data)
+    JSON.stringify(data),
   );
 }
 
@@ -44,7 +44,7 @@ function getTimestampOfEvent(event) {
   try {
     const timestamp = readFileSync(
       `/tmp/openlibre-webhook-apns-${event}.timestamp`,
-      { encoding: "utf8" }
+      { encoding: "utf8" },
     );
     if (!timestamp) {
       console.log("getTimestampOfEvent", event, null);
@@ -65,7 +65,7 @@ function setTimestampOfEvent(event, timestamp) {
   console.log("setTimestampOfEvent", event, timestamp);
   writeFileSync(
     `/tmp/openlibre-webhook-apns-${event}.timestamp`,
-    timestamp || ""
+    timestamp || "",
   );
 }
 
@@ -103,13 +103,13 @@ setInterval(async () => {
     ? (Date.now() - highNoticeSince) / 1e3
     : null;
   console.log(
-    `highNoticeSince=${highNoticeSince}, highSinceNoticeDuration=${highNoticeSinceDuration}`
+    `highNoticeSince=${highNoticeSince}, highSinceNoticeDuration=${highNoticeSinceDuration}`,
   );
   if (highNoticeSinceDuration && highNoticeSinceDuration < 3600e3) {
     console.log(
       `Skip sending still high notice, last notice was sent ${Math.round(
-        highNoticeSinceDuration / 60
-      )} minutes ago`
+        highNoticeSinceDuration / 60,
+      )} minutes ago`,
     );
     return;
   }
@@ -124,7 +124,7 @@ setInterval(async () => {
   notification.sound = "default";
   notification.alert = {
     title: `\u{26A0}\u{fe0f} Still High, Since ${convertMillisecondsToHoursAndMinutesString(
-      elapsed
+      elapsed,
     )}`,
     body: "Check your blood glucose.",
   };
@@ -149,7 +149,7 @@ export default async function showAlert({ data, last, notification }) {
   const hasRealTime = (data["cgm-properties"] ?? {})["has-real-time"] ?? false;
   const isLowKnown = hasRecentLow(last);
   console.log(
-    `isNight=${isNight}, hasRealTime=${hasRealTime}, isLowKnown=${isLowKnown}`
+    `isNight=${isNight}, hasRealTime=${hasRealTime}, isLowKnown=${isLowKnown}`,
   );
   writeTmpData("hasRealTime", hasRealTime);
   var lastHighTimestamp = getTimestampOfEvent("high");
@@ -165,7 +165,7 @@ export default async function showAlert({ data, last, notification }) {
     }
     if (isLowKnown) {
       console.log(
-        "Skip sending low notice, as we already have a recent low record"
+        "Skip sending low notice, as we already have a recent low record",
       );
       return;
     }
@@ -189,7 +189,7 @@ export default async function showAlert({ data, last, notification }) {
       notification.category = "LOW";
     } else {
       const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-        new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime()
+        new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime(),
       );
       notification.alert = {
         title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
@@ -220,7 +220,7 @@ export default async function showAlert({ data, last, notification }) {
         }
         notification.alert = {
           title: `\u{26A0}\u{fe0f} Still High, Since ${convertMillisecondsToHoursAndMinutesString(
-            elapsed
+            elapsed,
           )}`,
           body: `${newMgDl} mg/dL`,
         };
@@ -251,7 +251,7 @@ export default async function showAlert({ data, last, notification }) {
       notification.sound = "default";
     }
     const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-      new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime()
+      new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime(),
     );
     notification.alert = {
       title: "\u2705 End of Low",
@@ -271,7 +271,7 @@ export default async function showAlert({ data, last, notification }) {
       notification.sound = "default";
     }
     const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-      new Date(newTimestamp).getTime() - lastHighTimestamp.getTime()
+      new Date(newTimestamp).getTime() - lastHighTimestamp.getTime(),
     );
     notification.alert = {
       title: "\u2705 End of High",
