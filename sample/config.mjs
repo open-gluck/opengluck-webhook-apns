@@ -15,7 +15,7 @@ async function getTimezoneShift() {
           const data = Buffer.concat(chunks).toString();
           const timestamp = JSON.parse(data || "null")?.[0].timestamp;
           if (!timestamp) {
-            return 0;
+            return resolve(0);
           }
           const userTimezoneOffset =
             -parseInt(timestamp.match(/([+-]\d{2}):(\d{2})/)?.[1] || 0) * 60 -
