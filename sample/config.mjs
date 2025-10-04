@@ -122,7 +122,7 @@ function isHigh(mgDl) {
 async function getIsNight() {
   const shift = await timezoneShift;
   const currentHour = new Date(Date.now() + shift).getHours();
-  const isNight = currentHour >= 0 && currentHour < 9;
+  const isNight = (currentHour >= 0 && currentHour < 9) || currentHour >= 22;
   return isNight;
 }
 
