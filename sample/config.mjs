@@ -176,6 +176,40 @@ setInterval(async () => {
   await sendNotification(notification);
 }, 60e3);
 
+setInterval(async () => {
+  // check if we are still low and have not received a new reading in over 90s
+  const lastMgDl = readTmpData("lastMgDl");
+  if (!isLow(lastMgDl)) {
+    return;
+  }
+  const lowSince = getTimestampOfEvent("low");
+  if (!lowSince) {
+    return;
+  }
+  const lastReceivedAt = readTmpData("lastReceivedAt");
+  if (!lastReceivedAt) {
+    return;
+  }
+  const stalledFor = Date.now() - lastReceivedAt;
+  if (stalledFor < 90e3) {
+    return;
+  }
+  const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
+    Date.now() - lowSince.getTime()
+  );
+  let notification = {};
+  notification.priority = 10;
+  notification.sound = "default";
+  notification.badge = lastMgDl;
+  notification.category = "LOW";
+  notification.alert = {
+    title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
+    body: `Stalled at ${lastMgDl} mg/dL`,
+  };
+  console.log("Will send stalled low notification:", notification);
+  await sendNotification(notification);
+}, 60e3);
+
 function hasRecentLow(last) {
   const lowRecords = last["low-records"] || [];
   return lowRecords.some((record) => {
@@ -196,6 +230,8 @@ export default async function showAlert({ data, last, notification }) {
     `isNight=${isNight}, hasRealTime=${hasRealTime}, isLowKnown=${isLowKnown}`,
   );
   writeTmpData("hasRealTime", hasRealTime);
+  writeTmpData("lastReceivedAt", Date.now());
+  writeTmpData("lastMgDl", newMgDl);
   var lastHighTimestamp = getTimestampOfEvent("high");
   if (!isHigh(newMgDl)) {
     setTimestampOfEvent("high-notice", "");
