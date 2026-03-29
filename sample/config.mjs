@@ -1,5 +1,48 @@
 import { readFileSync, writeFileSync } from "fs";
 import { sendNotification } from "opengluck-apn";
+import { request } from "https";
+
+async function getTimezoneShift() {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      `${process.env.OPENGLUCK_URL}/opengluck/userdata/log-openglück.phone/lrange?end=1`,
+      (res) => {
+        let chunks = [];
+        res.on("data", (chunk) => {
+          chunks.push(chunk);
+        });
+        res.on("end", () => {
+          const data = Buffer.concat(chunks).toString();
+          const timestamp = JSON.parse(data || "null")?.[0].timestamp;
+          if (!timestamp) {
+            return resolve(0);
+          }
+          const userTimezoneOffset =
+            -parseInt(timestamp.match(/([+-]\d{2}):(\d{2})/)?.[1] || 0) * 60 -
+            parseInt(timestamp.match(/([+-]\d{2}):(\d{2})/)?.[2] || 0) *
+              Math.sign(
+                parseInt(timestamp.match(/([+-]\d{2}):(\d{2})/)?.[1] || 0),
+              );
+          const thisTimezoneOffset = new Date().getTimezoneOffset();
+          const timezoneShift =
+            -(userTimezoneOffset - thisTimezoneOffset) * 60e3;
+          console.log(
+            `Applying a timezone shift of ${timezoneShift / 60e3}m: userTimezoneOffset=${userTimezoneOffset} thisTimezoneOffset=${thisTimezoneOffset}`,
+          );
+          resolve(timezoneShift);
+        });
+        res.on("error", reject);
+      },
+    );
+    req.setHeader("Authorization", `Bearer ${process.env.OPENGLUCK_TOKEN}`);
+    req.end();
+  });
+}
+
+let timezoneShift = getTimezoneShift();
+setInterval(function () {
+  timezoneShift = getTimezoneShift();
+}, 300e3);
 
 function convertMillisecondsToHoursAndMinutesString(milliseconds) {
   const hours = Math.floor(milliseconds / 3600000);
@@ -36,7 +79,7 @@ function readTmpData(name) {
 function writeTmpData(name, data) {
   writeFileSync(
     `/tmp/openlibre-webhook-apns-${name}.data`,
-    JSON.stringify(data)
+    JSON.stringify(data),
   );
 }
 
@@ -44,7 +87,7 @@ function getTimestampOfEvent(event) {
   try {
     const timestamp = readFileSync(
       `/tmp/openlibre-webhook-apns-${event}.timestamp`,
-      { encoding: "utf8" }
+      { encoding: "utf8" },
     );
     if (!timestamp) {
       console.log("getTimestampOfEvent", event, null);
@@ -65,7 +108,7 @@ function setTimestampOfEvent(event, timestamp) {
   console.log("setTimestampOfEvent", event, timestamp);
   writeFileSync(
     `/tmp/openlibre-webhook-apns-${event}.timestamp`,
-    timestamp || ""
+    timestamp || "",
   );
 }
 
@@ -77,8 +120,9 @@ function isHigh(mgDl) {
 }
 
 async function getIsNight() {
-  const currentHour = new Date().getHours();
-  const isNight = currentHour >= 0 && currentHour < 9;
+  const shift = await timezoneShift;
+  const currentHour = new Date(Date.now() + shift).getHours();
+  const isNight = (currentHour >= 0 && currentHour < 9) || currentHour >= 22;
   return isNight;
 }
 
@@ -103,13 +147,13 @@ setInterval(async () => {
     ? (Date.now() - highNoticeSince) / 1e3
     : null;
   console.log(
-    `highNoticeSince=${highNoticeSince}, highSinceNoticeDuration=${highNoticeSinceDuration}`
+    `highNoticeSince=${highNoticeSince}, highSinceNoticeDuration=${highNoticeSinceDuration}`,
   );
   if (highNoticeSinceDuration && highNoticeSinceDuration < 3600e3) {
     console.log(
       `Skip sending still high notice, last notice was sent ${Math.round(
-        highNoticeSinceDuration / 60
-      )} minutes ago`
+        highNoticeSinceDuration / 60,
+      )} minutes ago`,
     );
     return;
   }
@@ -124,7 +168,7 @@ setInterval(async () => {
   notification.sound = "default";
   notification.alert = {
     title: `\u{26A0}\u{fe0f} Still High, Since ${convertMillisecondsToHoursAndMinutesString(
-      elapsed
+      elapsed,
     )}`,
     body: "Check your blood glucose.",
   };
@@ -149,7 +193,7 @@ export default async function showAlert({ data, last, notification }) {
   const hasRealTime = (data["cgm-properties"] ?? {})["has-real-time"] ?? false;
   const isLowKnown = hasRecentLow(last);
   console.log(
-    `isNight=${isNight}, hasRealTime=${hasRealTime}, isLowKnown=${isLowKnown}`
+    `isNight=${isNight}, hasRealTime=${hasRealTime}, isLowKnown=${isLowKnown}`,
   );
   writeTmpData("hasRealTime", hasRealTime);
   var lastHighTimestamp = getTimestampOfEvent("high");
@@ -165,7 +209,7 @@ export default async function showAlert({ data, last, notification }) {
     }
     if (isLowKnown) {
       console.log(
-        "Skip sending low notice, as we already have a recent low record"
+        "Skip sending low notice, as we already have a recent low record",
       );
       return;
     }
@@ -189,7 +233,7 @@ export default async function showAlert({ data, last, notification }) {
       notification.category = "LOW";
     } else {
       const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-        new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime()
+        new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime(),
       );
       notification.alert = {
         title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
@@ -220,7 +264,7 @@ export default async function showAlert({ data, last, notification }) {
         }
         notification.alert = {
           title: `\u{26A0}\u{fe0f} Still High, Since ${convertMillisecondsToHoursAndMinutesString(
-            elapsed
+            elapsed,
           )}`,
           body: `${newMgDl} mg/dL`,
         };
@@ -251,7 +295,7 @@ export default async function showAlert({ data, last, notification }) {
       notification.sound = "default";
     }
     const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-      new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime()
+      new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime(),
     );
     notification.alert = {
       title: "\u2705 End of Low",
@@ -271,7 +315,7 @@ export default async function showAlert({ data, last, notification }) {
       notification.sound = "default";
     }
     const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-      new Date(newTimestamp).getTime() - lastHighTimestamp.getTime()
+      new Date(newTimestamp).getTime() - lastHighTimestamp.getTime(),
     );
     notification.alert = {
       title: "\u2705 End of High",
