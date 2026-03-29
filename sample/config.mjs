@@ -191,7 +191,6 @@ setInterval(async () => {
     return;
   }
   const stalledFor = Date.now() - lastReceivedAt;
-  console.log(`Stalled low check: lastMgDl=${lastMgDl}, stalledFor=${Math.round(stalledFor / 1000)}s, lastReceivedAt=${lastReceivedAt}`);
   if (stalledFor < 90e3) {
     return;
   }
