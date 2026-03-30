@@ -18,15 +18,11 @@ opengluck](https://<your-server>/webhooks/glucose:changed):
 
 ### Support for Instant Glucose
 
-If you are using a CGM with support for instant glucose, you might also want to
-enable the `/instant` route. This will update the badge more often, using a
-lesser priority to preserve battery life for these updates.
+If you are using a CGM with support for instant glucose, also add the
+`instant-glucose:new` webhook:
 
-To do so, [install the `instant-glucose:changed` webhook in
-opengluck](https://<your-server>/webhooks/instant-glucose:changed):
-
-- http://host.docker.internal:6501/instant
-- enable sending last data
+- http://host.docker.internal:6501/instant-new
+- check "include last"
 
 ### Configuration
 

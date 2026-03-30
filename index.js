@@ -19,7 +19,9 @@ const port = Number(process.env.PORT || 6501);
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", async () => {
       console.log(`Received payload at ${new Date()}`);
+      const isGlucoseChanged = req.url === "/";
       const isInstant = req.url === "/instant";
+      const isInstantNew = req.url === "/instant-new";
       const bodyJSON = Buffer.concat(chunks).toString();
       console.log("Received", bodyJSON);
       const body = JSON.parse(bodyJSON);
@@ -33,17 +35,24 @@ const port = Number(process.env.PORT || 6501);
       console.log("Parsed last", last);
       res.end("OK");
 
-      const newGlucose = data.new.mgDl;
-      const newTimestamp = data.new.timestamp;
+      const newGlucose = data.mgDl ?? data.new.mgDl;
+      const newTimestamp = data.timestamp ?? data.new.timestamp;
       const newDate = new Date(newTimestamp);
       const cgmProperties = data["cgm-properties"] || {};
       const glucoseRecords = last["glucose-records"] || [];
-      const isNewScanOrHistoric = glucoseRecords.some(record => new Date(record.timestamp).getTime() === newDate.getTime());
+      const isNewScanOrHistoric = glucoseRecords.some(
+        (record) => new Date(record.timestamp).getTime() === newDate.getTime(),
+      );
       const currentCgmHasRealTime = !!cgmProperties["has-real-time"];
 
       console.log(
-        `isInstant=${isInstant}, cgmProperties=${cgmProperties}, currentDeviceHasCgmRealtimeData=${currentCgmHasRealTime}, newTimestamp=${newTimestamp}, isNewScanOrHistoric=${isNewScanOrHistoric}`,
+        `isGlucoseChanged=${isGlucoseChanged} isInstant=${isInstant} isInstantNew=${isInstantNew}, cgmProperties=${cgmProperties}, currentDeviceHasCgmRealtimeData=${currentCgmHasRealTime}, newTimestamp=${newTimestamp}, isNewScanOrHistoric=${isNewScanOrHistoric}`,
       );
+
+      if (isInstant) {
+        // deprecated, we now use isInstantNew
+        return;
+      }
 
       // sending notification
       let notification = {};
@@ -58,7 +67,7 @@ const port = Number(process.env.PORT || 6501);
         isNewScanOrHistoric,
       };
       if (!isInstant) {
-        await additionalConfig.default({ data, last, notification });
+        await additionalConfig.default({ url: req.url, data, last, notification });
       }
       console.log("Will send notification:", notification);
       await sendNotification(notification);

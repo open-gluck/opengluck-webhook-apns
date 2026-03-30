@@ -144,7 +144,7 @@ setInterval(async () => {
   }
   const highNoticeSince = getTimestampOfEvent("high-notice");
   const highNoticeSinceDuration = highNoticeSince
-    ? (Date.now() - highNoticeSince) / 1e3
+    ? Date.now() - highNoticeSince
     : null;
   console.log(
     `highNoticeSince=${highNoticeSince}, highSinceNoticeDuration=${highNoticeSinceDuration}`,
@@ -152,7 +152,7 @@ setInterval(async () => {
   if (highNoticeSinceDuration && highNoticeSinceDuration < 3600e3) {
     console.log(
       `Skip sending still high notice, last notice was sent ${Math.round(
-        highNoticeSinceDuration / 60,
+        highNoticeSinceDuration / 60e3,
       )} minutes ago`,
     );
     return;
@@ -194,18 +194,46 @@ setInterval(async () => {
   if (stalledFor < 90e3) {
     return;
   }
+
+  // skip if a recent low event exists (user already knows)
+  if (hasRecentLowRecord()) {
+    console.log("Skip sending stall notification, recent low event exists");
+    return;
+  }
+
+  const lastInstantMgDl = readTmpData("lastInstantMgDl");
+  const lastInstantAt = readTmpData("lastInstantAt");
+  const instantIsRecent = lastInstantAt && (Date.now() - lastInstantAt) < 90e3;
+
+  // if recent instant glucose is >= 70, we're out of hypo, skip
+  if (instantIsRecent && lastInstantMgDl >= 70) {
+    console.log("Skip sending stall notification, recent instant glucose is >= 70 mg/dL");
+    return;
+  }
+
   const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
     Date.now() - lowSince.getTime()
   );
+  const stalledForStr = convertMillisecondsToHoursAndMinutesString(stalledFor);
   let notification = {};
   notification.priority = 10;
   notification.sound = "default";
   notification.badge = lastMgDl;
   notification.category = "LOW";
-  notification.alert = {
-    title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
-    body: `Stalled at ${lastMgDl} mg/dL`,
-  };
+
+  if (instantIsRecent) {
+    // we have recent instant glucose, so we haven't truly stalled
+    notification.alert = {
+      title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
+      body: `${lastInstantMgDl} mg/dL`,
+    };
+  } else {
+    notification.alert = {
+      title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
+      body: `Stalled for ${stalledForStr} at ${lastMgDl} mg/dL`,
+    };
+  }
+
   console.log("Will send stalled low notification:", notification);
   await sendNotification(notification);
 }, 60e3);
@@ -214,12 +242,35 @@ function hasRecentLow(last) {
   const lowRecords = last["low-records"] || [];
   return lowRecords.some((record) => {
     const elapsed = new Date() - new Date(record.timestamp);
-    console.log("DEBUG elapsed since low record:", elapsed); // TODO remove this
     return elapsed < 30 * 60e3;
   });
 }
 
-export default async function showAlert({ data, last, notification }) {
+function hasRecentLowRecord() {
+  const lowRecords = readTmpData("lowRecords") || [];
+  return lowRecords.some((record) => {
+    const elapsed = Date.now() - new Date(record.timestamp).getTime();
+    const threshold = record.sugar_in_grams ? 30 * 60e3 : 10 * 60e3;
+    return elapsed < threshold;
+  });
+}
+
+export default async function showAlert({ url, data, last, notification }) {
+  // store low-records from every webhook for stall interval use
+  if (last && last["low-records"]) {
+    writeTmpData("lowRecords", last["low-records"]);
+  }
+
+  if (url === "/instant-new") {
+    writeTmpData("lastInstantMgDl", data.mgDl);
+    writeTmpData("lastInstantAt", Date.now());
+    notification.contentAvailable = false;
+    notification.priority = 5;
+    delete notification.sound;
+    delete notification.alert;
+    return;
+  }
+
   const newMgDl = data.new.mgDl;
   const newTimestamp = data.new.timestamp;
   const previousMgDl = data.previous.mgDl;
