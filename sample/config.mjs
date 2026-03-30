@@ -203,7 +203,9 @@ setInterval(async () => {
 
   const lastInstantMgDl = readTmpData("lastInstantMgDl");
   const lastInstantAt = readTmpData("lastInstantAt");
-  const instantIsRecent = lastInstantAt && (Date.now() - lastInstantAt) < 90e3;
+  const instantAge = lastInstantAt ? Date.now() - lastInstantAt : null;
+  const instantIsRecent = instantAge !== null && instantAge < 90e3;
+  console.log(`Stall check: lastMgDl=${lastMgDl}, stalledFor=${stalledFor}ms, instantMgDl=${lastInstantMgDl}, instantAge=${instantAge}ms, instantIsRecent=${instantIsRecent}`);
 
   // if recent instant glucose is >= 70, we're out of hypo, skip
   if (instantIsRecent && lastInstantMgDl >= 70) {
@@ -262,6 +264,7 @@ export default async function showAlert({ url, data, last, notification }) {
   }
 
   if (url === "/instant-new") {
+    console.log(`instant-new: mgDl=${data.mgDl}, timestamp=${data.timestamp}`);
     writeTmpData("lastInstantMgDl", data.mgDl);
     writeTmpData("lastInstantAt", Date.now());
     notification.contentAvailable = false;
