@@ -263,10 +263,20 @@ export default async function showAlert({ url, data, last, notification }) {
     writeTmpData("lowRecords", last["low-records"]);
   }
 
+  if (url === "/low") {
+    console.log(`low: low-records=${JSON.stringify(last["low-records"])}`);
+    return;
+  }
+
   if (url === "/instant-new") {
     console.log(`instant-new: mgDl=${data.mgDl}, timestamp=${data.timestamp}`);
-    writeTmpData("lastInstantMgDl", data.mgDl);
-    writeTmpData("lastInstantAt", Date.now());
+    const previousInstantTimestamp = readTmpData("lastInstantTimestamp");
+    const newInstantTimestamp = new Date(data.timestamp).getTime();
+    if (!previousInstantTimestamp || newInstantTimestamp >= previousInstantTimestamp) {
+      writeTmpData("lastInstantMgDl", data.mgDl);
+      writeTmpData("lastInstantAt", Date.now());
+      writeTmpData("lastInstantTimestamp", newInstantTimestamp);
+    }
     notification.contentAvailable = false;
     notification.priority = 5;
     delete notification.sound;

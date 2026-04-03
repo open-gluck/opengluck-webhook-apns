@@ -22,6 +22,7 @@ const port = Number(process.env.PORT || 6501);
       const isGlucoseChanged = req.url === "/";
       const isInstant = req.url === "/instant";
       const isInstantNew = req.url === "/instant-new";
+      const isLowChanged = req.url === "/low";
       const bodyJSON = Buffer.concat(chunks).toString();
       console.log("Received", bodyJSON);
       const body = JSON.parse(bodyJSON);
@@ -51,6 +52,11 @@ const port = Number(process.env.PORT || 6501);
 
       if (isInstant) {
         // deprecated, we now use isInstantNew
+        return;
+      }
+
+      if (isLowChanged) {
+        await additionalConfig.default({ url: req.url, data, last, notification });
         return;
       }
 

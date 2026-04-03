@@ -24,6 +24,13 @@ If you are using a CGM with support for instant glucose, also add the
 - http://host.docker.internal:6501/instant-new
 - check "include last"
 
+### Support for Low Changed
+
+Also add the `low:changed` webhook:
+
+- http://host.docker.internal:6501/low
+- check "include last"
+
 ### Configuration
 
 Copy the file `sample/config.mjs` in the root of the repository and use it as a starting point:
