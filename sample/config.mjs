@@ -34,6 +34,7 @@ async function getTimezoneShift() {
         res.on("error", reject);
       },
     );
+    req.on("error", reject);
     req.setHeader("Authorization", `Bearer ${process.env.OPENGLUCK_TOKEN}`);
     req.end();
   });
@@ -276,6 +277,9 @@ export default async function showAlert({ url, data, last, notification }) {
       writeTmpData("lastInstantMgDl", data.mgDl);
       writeTmpData("lastInstantAt", Date.now());
       writeTmpData("lastInstantTimestamp", newInstantTimestamp);
+    } else {
+      console.log(`instant-new: skipping old record (${data.timestamp} < ${new Date(previousInstantTimestamp).toISOString()})`);
+      return { skip: true };
     }
     notification.contentAvailable = false;
     notification.priority = 5;

@@ -55,13 +55,13 @@ const port = Number(process.env.PORT || 6501);
         return;
       }
 
+      // sending notification
+      let notification = {};
+
       if (isLowChanged) {
         await additionalConfig.default({ url: req.url, data, last, notification });
         return;
       }
-
-      // sending notification
-      let notification = {};
       notification.contentAvailable = !isInstant;
       notification.priority = isInstant ? 5 : 10;
       notification.sound = "default";
@@ -73,7 +73,10 @@ const port = Number(process.env.PORT || 6501);
         isNewScanOrHistoric,
       };
       if (!isInstant) {
-        await additionalConfig.default({ url: req.url, data, last, notification });
+        const result = await additionalConfig.default({ url: req.url, data, last, notification });
+        if (result && result.skip) {
+          return;
+        }
       }
       console.log("Will send notification:", notification);
       await sendNotification(notification);
