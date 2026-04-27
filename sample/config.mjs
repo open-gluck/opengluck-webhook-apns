@@ -45,6 +45,39 @@ setInterval(function () {
   timezoneShift = getTimezoneShift();
 }, 300e3);
 
+async function getSnoozedUntil() {
+  return new Promise((resolve) => {
+    const req = request(
+      `${process.env.OPENGLUCK_URL}/opengluck/userdata/apn-snooze`,
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(
+              Buffer.concat(chunks).toString() || "null",
+            );
+            const until = parsed?.until;
+            if (!until) return resolve(null);
+            resolve(new Date(until).getTime() > Date.now() ? until : null);
+          } catch {
+            resolve(null);
+          }
+        });
+        res.on("error", () => resolve(null));
+      },
+    );
+    req.on("error", () => resolve(null));
+    req.setHeader("Authorization", `Bearer ${process.env.OPENGLUCK_TOKEN}`);
+    req.end();
+  });
+}
+
+export async function shouldSnooze(notification) {
+  if (notification?.category === "LOW") return null;
+  return await getSnoozedUntil();
+}
+
 function convertMillisecondsToHoursAndMinutesString(milliseconds) {
   const hours = Math.floor(milliseconds / 3600000);
   const minutes = Math.floor((milliseconds % 3600000) / 60000);
@@ -173,6 +206,11 @@ setInterval(async () => {
     )}`,
     body: "Check your blood glucose.",
   };
+  const snoozedUntil = await shouldSnooze(notification);
+  if (snoozedUntil) {
+    console.log(`snoozing this type of notification until ${snoozedUntil}`);
+    return;
+  }
   console.log("Will send notification:", notification);
   await sendNotification(notification);
 }, 60e3);
@@ -237,6 +275,11 @@ setInterval(async () => {
     };
   }
 
+  const snoozedUntil = await shouldSnooze(notification);
+  if (snoozedUntil) {
+    console.log(`snoozing this type of notification until ${snoozedUntil}`);
+    return;
+  }
   console.log("Will send stalled low notification:", notification);
   await sendNotification(notification);
 }, 60e3);

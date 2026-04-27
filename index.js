@@ -78,6 +78,18 @@ const port = Number(process.env.PORT || 6501);
           return;
         }
       }
+      const snoozedUntil = additionalConfig.shouldSnooze
+        ? await additionalConfig.shouldSnooze(notification)
+        : null;
+      if (snoozedUntil) {
+        console.log(
+          `snoozing this type of notification until ${snoozedUntil}, sending silent badge update`,
+        );
+        delete notification.alert;
+        delete notification.sound;
+        notification.contentAvailable = true;
+        notification.priority = 5;
+      }
       console.log("Will send notification:", notification);
       await sendNotification(notification);
     });

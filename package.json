@@ -6,6 +6,7 @@
   "scripts": {
     "start": "TZ=Europe/Paris node index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "snooze": "node scripts/snooze.js",
     "eslint": "eslint **.js **.mjs"
   },
   "author": "",
