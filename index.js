@@ -36,6 +36,11 @@ const port = Number(process.env.PORT || 6501);
       console.log("Parsed last", last);
       res.end("OK");
 
+      if (isLowChanged) {
+        await additionalConfig.default({ url: req.url, data, last });
+        return;
+      }
+
       const newGlucose = data.mgDl ?? data.new.mgDl;
       const newTimestamp = data.timestamp ?? data.new.timestamp;
       const newDate = new Date(newTimestamp);
@@ -58,10 +63,6 @@ const port = Number(process.env.PORT || 6501);
       // sending notification
       let notification = {};
 
-      if (isLowChanged) {
-        await additionalConfig.default({ url: req.url, data, last, notification });
-        return;
-      }
       notification.contentAvailable = !isInstant;
       notification.priority = isInstant ? 5 : 10;
       notification.sound = "default";
