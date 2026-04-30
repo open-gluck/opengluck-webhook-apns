@@ -40,3 +40,20 @@ cp sample/config.mjs .
 ```
 
 By default, the config will send notifications when low/high events occur, when you return in the normal range, and will send repeat notifications for lows.
+
+## Snoozing non-low notifications
+
+You can temporarily silence every non-low notification (high alerts, end-of-low, end-of-high, instant updates, still-high reminders) until a given date and time. Low alerts are never affected. Snoozed glucose-changed events still ship a silent badge update so the app icon keeps the latest value.
+
+The snooze state is stored on the OpenGluck server under the `apn-snooze` userdata key, so it survives webhook restarts and can be set from any machine that has `OPENGLUCK_URL` and `OPENGLUCK_TOKEN` configured.
+
+```bash
+# Snooze until a specific date/time (any format new Date() accepts)
+npm run snooze -- 2026-04-27T20:10+00:00
+
+# Show the current snooze (also prints the time in your local timezone)
+npm run snooze
+
+# Clear the snooze
+npm run snooze -- clear
+```
