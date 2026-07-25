@@ -18,15 +18,18 @@ opengluck](https://<your-server>/webhooks/glucose:changed):
 
 ### Support for Instant Glucose
 
-If you are using a CGM with support for instant glucose, you might also want to
-enable the `/instant` route. This will update the badge more often, using a
-lesser priority to preserve battery life for these updates.
+If you are using a CGM with support for instant glucose, also add the
+`instant-glucose:new` webhook:
 
-To do so, [install the `instant-glucose:changed` webhook in
-opengluck](https://<your-server>/webhooks/instant-glucose:changed):
+- http://host.docker.internal:6501/instant-new
+- check "include last"
 
-- http://host.docker.internal:6501/instant
-- enable sending last data
+### Support for Low Changed
+
+Also add the `low:changed` webhook:
+
+- http://host.docker.internal:6501/low
+- check "include last"
 
 ### Configuration
 
@@ -37,3 +40,44 @@ cp sample/config.mjs .
 ```
 
 By default, the config will send notifications when low/high events occur, when you return in the normal range, and will send repeat notifications for lows.
+
+## Snoozing non-low notifications
+
+You can temporarily silence every non-low notification (high alerts, end-of-low, end-of-high, instant updates, still-high reminders) until a given date and time. Low alerts are never affected. Snoozed glucose-changed events still ship a silent badge update so the app icon keeps the latest value.
+
+The snooze state is stored on the OpenGluck server under the `apn-snooze` userdata key, so it survives webhook restarts and can be set from any machine that has `OPENGLUCK_URL` and `OPENGLUCK_TOKEN` configured.
+
+The webhook caches the snooze state for a minute and keeps using the last value it read successfully if the server becomes unreachable, so a network outage no longer un-snoozes your notifications. A cached snooze still expires on schedule, and low alerts bypass the cache entirely.
+
+```bash
+# Snooze until a specific date/time (any format new Date() accepts)
+npm run snooze -- 2026-04-27T20:10+00:00
+
+# Show the current snooze (also prints the time in your local timezone)
+npm run snooze
+
+# Clear the snooze
+npm run snooze -- clear
+```
+
+### Automatic snooze at night
+
+Non-low notifications are snoozed every night between 22:00 and 09:00, in your
+own timezone, without having to run anything. It behaves exactly as if you had
+run `npm run snooze` at 22:00 every evening: high alerts, end-of-low,
+end-of-high, instant updates and still-high reminders become silent badge
+updates, and low alerts still come through as usual.
+
+Your timezone is read from your phone logs, so the window follows you when you
+travel. If it cannot be determined, the server's own timezone is used instead.
+
+The window is configured at the top of `config.mjs`:
+
+```js
+const NIGHT_FROM_HOUR = 22;
+const NIGHT_UNTIL_HOUR = 9;
+const AUTO_SNOOZE_AT_NIGHT = true;
+```
+
+Set `AUTO_SNOOZE_AT_NIGHT` to `false` to turn this off and only snooze manually.
+A manual snooze that outlasts the night keeps applying after `NIGHT_UNTIL_HOUR`.
