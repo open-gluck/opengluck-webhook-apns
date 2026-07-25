@@ -436,21 +436,33 @@ async function checkStalledLow() {
 }
 runPeriodically("stalled-low", checkStalledLow, 60e3);
 
-function hasRecentLow(last) {
-  const lowRecords = last["low-records"] || [];
-  return lowRecords.some((record) => {
-    const elapsed = new Date() - new Date(record.timestamp);
-    return elapsed < 30 * 60e3;
-  });
+// How long a low record means the user already knows, and we stay quiet.
+//
+// A record with no sugar is how snoozing a low is stored: the user has
+// acknowledged it but taken nothing, so nothing is bringing them back up and
+// we go quiet for less long than after an actual sugar intake.
+//
+// Both the low alerts and the stall notifications go through this, so a
+// snoozed low silences the two of them for the same length of time.
+function lowRecordQuietPeriod(record) {
+  return record.sugar_in_grams ? 30 * 60e3 : 10 * 60e3;
 }
 
+function isWithinQuietPeriod(record) {
+  return (
+    Date.now() - new Date(record.timestamp).getTime() <
+    lowRecordQuietPeriod(record)
+  );
+}
+
+// from the webhook payload, for the low alerts
+function hasRecentLow(last) {
+  return (last["low-records"] || []).some(isWithinQuietPeriod);
+}
+
+// from the cache the webhooks keep warm, for the stall check
 function hasRecentLowRecord() {
-  const lowRecords = readTmpData("lowRecords") || [];
-  return lowRecords.some((record) => {
-    const elapsed = Date.now() - new Date(record.timestamp).getTime();
-    const threshold = record.sugar_in_grams ? 30 * 60e3 : 10 * 60e3;
-    return elapsed < threshold;
-  });
+  return (readTmpData("lowRecords") || []).some(isWithinQuietPeriod);
 }
 
 export default async function showAlert({ url, data, last, notification }) {
