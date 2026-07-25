@@ -5,6 +5,14 @@ import { request } from "https";
 const REQUEST_TIMEOUT = 5e3;
 const SNOOZE_CACHE_TTL = 60e3;
 
+// Night runs from NIGHT_FROM_HOUR to NIGHT_UNTIL_HOUR in the user's own
+// timezone, read from their phone logs. With AUTO_SNOOZE_AT_NIGHT on, every
+// non-low notification is snoozed for that window, as if `npm run snooze` had
+// been run at NIGHT_FROM_HOUR every evening. Low alerts are never affected.
+const NIGHT_FROM_HOUR = 22;
+const NIGHT_UNTIL_HOUR = 9;
+const AUTO_SNOOZE_AT_NIGHT = true;
+
 async function getTimezoneShift() {
   return new Promise((resolve, reject) => {
     const req = request(
@@ -155,6 +163,12 @@ async function getSnoozedUntil() {
 
 export async function shouldSnooze(notification) {
   if (notification?.category === "LOW") return null;
+  if (AUTO_SNOOZE_AT_NIGHT) {
+    const nightUntil = await getNightSnoozeUntil();
+    // no need to read the manual snooze: we are snoozed either way, and a
+    // manual snooze outlasting the night takes over at NIGHT_UNTIL_HOUR
+    if (nightUntil) return nightUntil;
+  }
   return await getSnoozedUntil();
 }
 
@@ -245,11 +259,38 @@ function isHigh(mgDl) {
   return mgDl >= 170;
 }
 
+// the shift is built so that reading this date with the local getters yields
+// the hour the user is actually seeing on their phone
+async function getUserLocalNow() {
+  return new Date(Date.now() + (await timezoneShift));
+}
+
+function isNightHour(hour) {
+  if (NIGHT_FROM_HOUR > NIGHT_UNTIL_HOUR) {
+    // the window wraps around midnight
+    return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR;
+  }
+  return hour >= NIGHT_FROM_HOUR && hour < NIGHT_UNTIL_HOUR;
+}
+
 async function getIsNight() {
+  return isNightHour((await getUserLocalNow()).getHours());
+}
+
+// null outside of the night, otherwise when the night snooze lapses
+async function getNightSnoozeUntil() {
   const shift = await timezoneShift;
-  const currentHour = new Date(Date.now() + shift).getHours();
-  const isNight = (currentHour >= 0 && currentHour < 9) || currentHour >= 22;
-  return isNight;
+  const localNow = new Date(Date.now() + shift);
+  if (!isNightHour(localNow.getHours())) {
+    return null;
+  }
+  const localUntil = new Date(localNow);
+  localUntil.setHours(NIGHT_UNTIL_HOUR, 0, 0, 0);
+  if (localUntil <= localNow) {
+    // we are before midnight, so the night ends tomorrow
+    localUntil.setDate(localUntil.getDate() + 1);
+  }
+  return new Date(localUntil.getTime() - shift).toISOString();
 }
 
 // setInterval never sees a rejected promise, so every periodic check has to

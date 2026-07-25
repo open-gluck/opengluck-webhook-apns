@@ -59,3 +59,25 @@ npm run snooze
 # Clear the snooze
 npm run snooze -- clear
 ```
+
+### Automatic snooze at night
+
+Non-low notifications are snoozed every night between 22:00 and 09:00, in your
+own timezone, without having to run anything. It behaves exactly as if you had
+run `npm run snooze` at 22:00 every evening: high alerts, end-of-low,
+end-of-high, instant updates and still-high reminders become silent badge
+updates, and low alerts still come through as usual.
+
+Your timezone is read from your phone logs, so the window follows you when you
+travel. If it cannot be determined, the server's own timezone is used instead.
+
+The window is configured at the top of `config.mjs`:
+
+```js
+const NIGHT_FROM_HOUR = 22;
+const NIGHT_UNTIL_HOUR = 9;
+const AUTO_SNOOZE_AT_NIGHT = true;
+```
+
+Set `AUTO_SNOOZE_AT_NIGHT` to `false` to turn this off and only snooze manually.
+A manual snooze that outlasts the night keeps applying after `NIGHT_UNTIL_HOUR`.
