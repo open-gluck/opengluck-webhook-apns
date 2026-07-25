@@ -390,7 +390,11 @@ async function checkStalledLow() {
   const lastInstantMgDl = readTmpData("lastInstantMgDl");
   const lastInstantAt = readTmpData("lastInstantAt");
   const instantAge = lastInstantAt ? Date.now() - lastInstantAt : null;
-  const instantIsRecent = instantAge !== null && instantAge < 90e3;
+  // the reading and its date are stored in two separate files, so a recent
+  // date is no guarantee the value next to it is usable; without a number we
+  // have no instant reading at all, whatever its date says
+  const instantIsRecent =
+    instantAge !== null && instantAge < 90e3 && Number.isFinite(lastInstantMgDl);
   console.log(`Stall check: lastMgDl=${lastMgDl}, stalledFor=${stalledFor}ms, instantMgDl=${lastInstantMgDl}, instantAge=${instantAge}ms, instantIsRecent=${instantIsRecent}`);
 
   // if recent instant glucose is >= 70, we're out of hypo, skip
