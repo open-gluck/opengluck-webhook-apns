@@ -2,6 +2,9 @@ import { readFileSync, writeFileSync } from "fs";
 import { sendNotification } from "opengluck-apn";
 import { request } from "https";
 
+const REQUEST_TIMEOUT = 5e3;
+const SNOOZE_CACHE_TTL = 60e3;
+
 async function getTimezoneShift() {
   return new Promise((resolve, reject) => {
     const req = request(
@@ -13,7 +16,21 @@ async function getTimezoneShift() {
         });
         res.on("end", () => {
           const data = Buffer.concat(chunks).toString();
-          const timestamp = JSON.parse(data || "null")?.[0].timestamp;
+          if (res.statusCode !== 200) {
+            return reject(
+              new Error(
+                `Unexpected status code ${res.statusCode}: ${data.substring(0, 200)}`,
+              ),
+            );
+          }
+          let timestamp;
+          try {
+            // note the second `?.`: `[]?.[0].timestamp` throws, as optional
+            // chaining only short-circuits on a nullish left-hand side
+            timestamp = JSON.parse(data || "null")?.[0]?.timestamp;
+          } catch (e) {
+            return reject(e);
+          }
           if (!timestamp) {
             return resolve(0);
           }
@@ -35,42 +52,105 @@ async function getTimezoneShift() {
       },
     );
     req.on("error", reject);
+    req.setTimeout(REQUEST_TIMEOUT, () =>
+      req.destroy(new Error("Request timed out")),
+    );
     req.setHeader("Authorization", `Bearer ${process.env.OPENGLUCK_TOKEN}`);
     req.end();
   });
 }
 
-let timezoneShift = getTimezoneShift();
-setInterval(function () {
-  timezoneShift = getTimezoneShift();
-}, 300e3);
+// `timezoneShift` is awaited from every notification path, so it must never
+// hold a rejected promise: that would both trip an unhandled rejection at
+// startup and throw on every read until the next refresh.
+let lastKnownTimezoneShift = 0;
+let timezoneShift = Promise.resolve(0);
+function refreshTimezoneShift() {
+  timezoneShift = getTimezoneShift()
+    .then((shift) => {
+      lastKnownTimezoneShift = shift;
+      return shift;
+    })
+    .catch((e) => {
+      console.error(
+        `Could not read timezone shift, keeping ${lastKnownTimezoneShift / 60e3}m`,
+        e,
+      );
+      return lastKnownTimezoneShift;
+    });
+}
+refreshTimezoneShift();
+setInterval(refreshTimezoneShift, 300e3);
 
-async function getSnoozedUntil() {
-  return new Promise((resolve) => {
+function fetchSnoozeUntil() {
+  return new Promise((resolve, reject) => {
     const req = request(
       `${process.env.OPENGLUCK_URL}/opengluck/userdata/apn-snooze`,
       (res) => {
         const chunks = [];
         res.on("data", (c) => chunks.push(c));
         res.on("end", () => {
-          try {
-            const parsed = JSON.parse(
-              Buffer.concat(chunks).toString() || "null",
+          const data = Buffer.concat(chunks).toString();
+          if (res.statusCode !== 200) {
+            return reject(
+              new Error(
+                `Unexpected status code ${res.statusCode}: ${data.substring(0, 200)}`,
+              ),
             );
-            const until = parsed?.until;
-            if (!until) return resolve(null);
-            resolve(new Date(until).getTime() > Date.now() ? until : null);
-          } catch {
-            resolve(null);
+          }
+          try {
+            resolve(JSON.parse(data || "null")?.until ?? null);
+          } catch (e) {
+            reject(e);
           }
         });
-        res.on("error", () => resolve(null));
+        res.on("error", reject);
       },
     );
-    req.on("error", () => resolve(null));
+    req.on("error", reject);
+    req.setTimeout(REQUEST_TIMEOUT, () =>
+      req.destroy(new Error("Request timed out")),
+    );
     req.setHeader("Authorization", `Bearer ${process.env.OPENGLUCK_TOKEN}`);
     req.end();
   });
+}
+
+// Only updated on a successful read, so a failing server falls back to the
+// last value we actually saw rather than to "not snoozed". Expiry is always
+// recomputed against the wall clock, so a cached snooze still lapses on time.
+let snoozeCache = { until: null, fetchedAt: 0 };
+
+function snoozeStillActive(until) {
+  if (!until) return null;
+  return new Date(until).getTime() > Date.now() ? until : null;
+}
+
+async function getSnoozedUntil() {
+  if (Date.now() - snoozeCache.fetchedAt < SNOOZE_CACHE_TTL) {
+    return snoozeStillActive(snoozeCache.until);
+  }
+  try {
+    let until;
+    try {
+      until = await fetchSnoozeUntil();
+    } catch (e) {
+      // node keeps connections alive by default, so the first attempt can
+      // land on a socket the server has already dropped; retry once before
+      // treating this as a real failure
+      if (e.code !== "ECONNRESET" && e.code !== "EPIPE") throw e;
+      console.log(`Retrying snooze read after ${e.code}`);
+      until = await fetchSnoozeUntil();
+    }
+    snoozeCache = { until, fetchedAt: Date.now() };
+    return snoozeStillActive(until);
+  } catch (e) {
+    console.error(
+      `Could not read snooze state, falling back to last known value (${snoozeCache.until})`,
+      e,
+    );
+    return snoozeStillActive(snoozeCache.until);
+  }
 }
 
 export async function shouldSnooze(notification) {
@@ -138,6 +218,18 @@ function getTimestampOfEvent(event) {
   }
 }
 
+// /tmp is wiped on reboot, so an event timestamp can be missing even when the
+// previous reading says we were in that state. Callers get null and drop the
+// "Since ..." part of the message rather than throwing on .getTime().
+function getElapsedSinceEvent(event, until) {
+  const since = getTimestampOfEvent(event);
+  if (!since) {
+    console.log(`No stored ${event} timestamp, cannot compute elapsed time`);
+    return null;
+  }
+  return new Date(until).getTime() - since.getTime();
+}
+
 function setTimestampOfEvent(event, timestamp) {
   console.log("setTimestampOfEvent", event, timestamp);
   writeFileSync(
@@ -160,7 +252,15 @@ async function getIsNight() {
   return isNight;
 }
 
-setInterval(async () => {
+// setInterval never sees a rejected promise, so every periodic check has to
+// swallow its own failures or it takes the whole process down with it
+function runPeriodically(name, check, everyMs) {
+  setInterval(() => {
+    check().catch((e) => console.error(`${name} check failed`, e));
+  }, everyMs);
+}
+
+async function checkStillHigh() {
   // check if we are still high, and not using real-time data, as this may well
   // be the time to send a reminder
   const highSince = getTimestampOfEvent("high");
@@ -213,11 +313,17 @@ setInterval(async () => {
   }
   console.log("Will send notification:", notification);
   await sendNotification(notification);
-}, 60e3);
+}
+runPeriodically("still-high", checkStillHigh, 60e3);
 
-setInterval(async () => {
+async function checkStalledLow() {
   // check if we are still low and have not received a new reading in over 90s
   const lastMgDl = readTmpData("lastMgDl");
+  // an explicit number check: readTmpData returns null when the file is
+  // missing or truncated, and isLow(null) is true because null coerces to 0
+  if (!Number.isFinite(lastMgDl)) {
+    return;
+  }
   if (!isLow(lastMgDl)) {
     return;
   }
@@ -282,7 +388,8 @@ setInterval(async () => {
   }
   console.log("Will send stalled low notification:", notification);
   await sendNotification(notification);
-}, 60e3);
+}
+runPeriodically("stalled-low", checkStalledLow, 60e3);
 
 function hasRecentLow(last) {
   const lowRecords = last["low-records"] || [];
@@ -303,12 +410,12 @@ function hasRecentLowRecord() {
 
 export default async function showAlert({ url, data, last, notification }) {
   // store low-records from every webhook for stall interval use
-  if (last && last["low-records"]) {
+  if (last?.["low-records"]) {
     writeTmpData("lowRecords", last["low-records"]);
   }
 
   if (url === "/low") {
-    console.log(`low: low-records=${JSON.stringify(last["low-records"])}`);
+    console.log(`low: low-records=${JSON.stringify(last?.["low-records"])}`);
     return;
   }
 
@@ -351,7 +458,7 @@ export default async function showAlert({ url, data, last, notification }) {
   if (isLow(newMgDl)) {
     //const lowNoticeSince = getTimestampOfEvent("low-notice");
     //const elapsedNotice = new Date(newTimestamp) - lowNoticeSince;
-    if (!isLow(previousMgDl)) {
+    if (!isLow(previousMgDl) || !getTimestampOfEvent("low")) {
       setTimestampOfEvent("low", newTimestamp);
     }
     if (isLowKnown) {
@@ -379,11 +486,14 @@ export default async function showAlert({ url, data, last, notification }) {
       };
       notification.category = "LOW";
     } else {
-      const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-        new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime(),
-      );
+      const elapsedLow = getElapsedSinceEvent("low", newTimestamp);
       notification.alert = {
-        title: `\u{1F6A8} Still Low, Since ${sinceMinutes}`,
+        title:
+          elapsedLow === null
+            ? "\u{1F6A8} Still Low"
+            : `\u{1F6A8} Still Low, Since ${convertMillisecondsToHoursAndMinutesString(
+                elapsedLow,
+              )}`,
         body: `${newMgDl} mg/dL`,
       };
       notification.category = "LOW";
@@ -393,11 +503,15 @@ export default async function showAlert({ url, data, last, notification }) {
     setTimestampOfEvent("low-notice", new Date(0).toISOString());
   }
   if (isHigh(newMgDl)) {
-    if (isHigh(previousMgDl)) {
+    // without a stored "high" timestamp we cannot say how long this episode
+    // has run, so treat it as a fresh high rather than reporting a bogus
+    // duration measured from the epoch
+    if (isHigh(previousMgDl) && lastHighTimestamp) {
       const highNoticeSince = getTimestampOfEvent("high-notice");
-      const highSince = lastHighTimestamp;
-      const elapsedNotice = new Date(newTimestamp) - highNoticeSince;
-      const elapsed = new Date(newTimestamp) - highSince;
+      const elapsed = new Date(newTimestamp) - lastHighTimestamp;
+      const elapsedNotice = highNoticeSince
+        ? new Date(newTimestamp) - highNoticeSince
+        : Infinity;
       if (elapsedNotice < 60 * 60e3) {
         // do not stack alerts if we were already high and last notice since less than 1 hour
         return;
@@ -441,12 +555,15 @@ export default async function showAlert({ url, data, last, notification }) {
     } else {
       notification.sound = "default";
     }
-    const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-      new Date(newTimestamp).getTime() - getTimestampOfEvent("low").getTime(),
-    );
+    const elapsedLow = getElapsedSinceEvent("low", newTimestamp);
     notification.alert = {
       title: "\u2705 End of Low",
-      body: `${newMgDl} mg/dL. Episode lasted ${sinceMinutes}`,
+      body:
+        elapsedLow === null
+          ? `${newMgDl} mg/dL`
+          : `${newMgDl} mg/dL. Episode lasted ${convertMillisecondsToHoursAndMinutesString(
+              elapsedLow,
+            )}`,
     };
     return;
   }
@@ -461,12 +578,17 @@ export default async function showAlert({ url, data, last, notification }) {
     } else {
       notification.sound = "default";
     }
-    const sinceMinutes = convertMillisecondsToHoursAndMinutesString(
-      new Date(newTimestamp).getTime() - lastHighTimestamp.getTime(),
-    );
+    const elapsedHigh = lastHighTimestamp
+      ? new Date(newTimestamp).getTime() - lastHighTimestamp.getTime()
+      : null;
     notification.alert = {
       title: "\u2705 End of High",
-      body: `${newMgDl} mg/dL. Episode lasted ${sinceMinutes}`,
+      body:
+        elapsedHigh === null
+          ? `${newMgDl} mg/dL`
+          : `${newMgDl} mg/dL. Episode lasted ${convertMillisecondsToHoursAndMinutesString(
+              elapsedHigh,
+            )}`,
     };
     return;
   }

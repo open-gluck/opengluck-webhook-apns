@@ -47,6 +47,8 @@ You can temporarily silence every non-low notification (high alerts, end-of-low,
 
 The snooze state is stored on the OpenGluck server under the `apn-snooze` userdata key, so it survives webhook restarts and can be set from any machine that has `OPENGLUCK_URL` and `OPENGLUCK_TOKEN` configured.
 
+The webhook caches the snooze state for a minute and keeps using the last value it read successfully if the server becomes unreachable, so a network outage no longer un-snoozes your notifications. A cached snooze still expires on schedule, and low alerts bypass the cache entirely.
+
 ```bash
 # Snooze until a specific date/time (any format new Date() accepts)
 npm run snooze -- 2026-04-27T20:10+00:00
